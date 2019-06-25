@@ -1,3 +1,9 @@
+# Fork of 'can-utils' to support IMechE ADS-DV Debugging.
+
+## candump
+
+Changes have been made to 'candump' to add a stats timebase display mode (-t s) to display min, max and mean values of frame timing. Works best when used with a single frame ID filter, e.g. `candump vcan0,123#7FF -t s'
+
 <p align="center">
 <img src="https://github.com/linux-can/can-logos/raw/master/png/SocketCAN-logo-60dpi.png" alt="SocketCAN logo"/>
 </p>
