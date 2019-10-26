@@ -118,7 +118,7 @@ void print_usage(char *prg)
 {
 	fprintf(stderr, "\nUsage: %s [options] <CAN interface>+\n", prg);
 	fprintf(stderr, "  (use CTRL-C to terminate %s)\n\n", prg);
-	fprintf(stderr, "Options: -t <type>   (timestamp: (a)bsolute/(d)elta/(z)ero/(A)bsolute w date)\n");
+	fprintf(stderr, "Options: -t <type>   (timestamp: (a)bsolute/(d)elta/(z)ero/(A)bsolute w date)/(s)tatistics\n");
 	fprintf(stderr, "         -H          (read hardware timestamps instead of system timestamps)\n");
 	fprintf(stderr, "         -c          (increment color mode level)\n");
 	fprintf(stderr, "         -i          (binary output - may exceed 80 chars/line)\n");
@@ -156,6 +156,8 @@ void print_usage(char *prg)
 	fprintf(stderr, "%s vcan2,12345678:DFFFFFFF (match only for extended CAN ID 12345678)\n", prg);
 	fprintf(stderr, "%s vcan2,123:7FF (matches CAN ID 123 - including EFF and RTR frames)\n", prg);
 	fprintf(stderr, "%s vcan2,123:C00007FF (matches CAN ID 123 - only SFF and non-RTR frames)\n", prg);
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Customised by Ian Murphy, Rockfort Engineering Ltd.\n");
 	fprintf(stderr, "\n");
 }
 
@@ -262,7 +264,7 @@ int main(int argc, char **argv)
 		case 't':
 			timestamp = optarg[0];
 			if ((timestamp != 'a') && (timestamp != 'A') &&
-			    (timestamp != 'd') && (timestamp != 'z')) {
+			    (timestamp != 'd') && (timestamp != 'z') && (timestamp != 's')) {
 				fprintf(stderr, "%s: unknown timestamp mode '%c' - ignored\n",
 				       basename(argv[0]), optarg[0]);
 				timestamp = 0;
@@ -765,11 +767,24 @@ int main(int argc, char **argv)
 
 				if (log) {
 					char buf[CL_CFSZ]; /* max length */
+					struct timeval diff;
+					
+					/* log CAN frame with timestamp & device */
+					if (last_tv.tv_sec == 0)   /* first init */
+						last_tv = tv;
+					diff.tv_sec  = tv.tv_sec  - last_tv.tv_sec;
+					diff.tv_usec = tv.tv_usec - last_tv.tv_usec;
+					if (diff.tv_usec < 0)
+						diff.tv_sec--, diff.tv_usec += 1000000;
+					if (diff.tv_sec < 0)
+						diff.tv_sec = diff.tv_usec = 0;
+				
+					if (timestamp == 'd')
+						last_tv = tv; /* update for delta calculation */
 
-					/* log CAN frame with absolute timestamp & device */
 					sprint_canframe(buf, &frame, 0, maxdlen);
 					fprintf(logfile, "(%010ld.%06ld) %*s %s\n",
-						tv.tv_sec, tv.tv_usec,
+						diff.tv_sec, diff.tv_usec,
 						max_devname_len, devname[idx], buf);
 				}
 
@@ -813,11 +828,20 @@ int main(int argc, char **argv)
 
 				case 'd': /* delta */
 				case 'z': /* starting with zero */
+				case 's':
 				{
-					struct timeval diff;
+					struct timeval diff, max, min, ave;
+					static __u32 max_us, min_us, ave_us;
+					__u32 this_us;
+					static __u64 sum_us, count;
 
-					if (last_tv.tv_sec == 0)   /* first init */
+					if (last_tv.tv_sec == 0) {   /* first init */
 						last_tv = tv;
+						max_us = 0;
+						min_us = 0xFFFFFFFF;
+						sum_us = 0;
+						count = 0;
+					}
 					diff.tv_sec  = tv.tv_sec  - last_tv.tv_sec;
 					diff.tv_usec = tv.tv_usec - last_tv.tv_usec;
 					if (diff.tv_usec < 0)
@@ -828,6 +852,28 @@ int main(int argc, char **argv)
 				
 					if (timestamp == 'd')
 						last_tv = tv; /* update for delta calculation */
+					
+					if (timestamp == 's') {
+						last_tv = tv; /* update for delta calculation */
+						
+						this_us = diff.tv_sec * 1000000 + diff.tv_usec;
+						if(this_us > max_us) max_us = this_us;
+						if((this_us > 0) && (this_us < min_us)) min_us = this_us;
+						
+						sum_us += this_us;
+						ave_us = (__u32)(sum_us / ++count);
+						
+						max.tv_sec = max_us / 1000000;
+						max.tv_usec = max_us % 1000000;
+						min.tv_sec = min_us / 1000000;
+						min.tv_usec = min_us % 1000000;
+						ave.tv_sec = ave_us / 1000000;
+						ave.tv_usec = ave_us % 1000000;
+						
+						printf("(%03ld.%06ld) ", max.tv_sec, max.tv_usec);
+						printf("(%03ld.%06ld) ", ave.tv_sec, ave.tv_usec);
+						printf("(%03ld.%06ld) ", min.tv_sec, min.tv_usec);
+					}
 				}
 				break;
 
